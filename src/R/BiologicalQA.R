@@ -1,6 +1,6 @@
 #' ---
-#' title: "CHANGEME Biological QA"
-#' author: "CHANGEME"
+#' title: "FLowering Time Induction Biological QA"
+#' author: "Jesús Praena"
 #' date: "`r Sys.Date()`"
 #' output:
 #'  html_document:
@@ -26,7 +26,7 @@ suppressPackageStartupMessages({
 })
 
 #' * Helper functions
-source(here("UPSCb-common/src/R/plot.multidensity.R"))
+
 source(here("UPSCb-common/src/R/featureSelection.R"))
 
 #' * Graphics
@@ -41,54 +41,30 @@ mar <- par("mar")
 #' # any relevant identifier, and the metadata of importance to the study design
 #' # as columns, e.g. the SamplingTime for a time series experiment
 #'  ```
-samples <- read_csv(here("doc/CHANGE-ME.csv"),
+samples <- read_csv(here("doc/variables.csv"),
                       col_types=cols(
-                        col_factor(),
-                        col_integer(),
+                        col_character(),
                         col_factor(),
                         col_factor(),
                         col_factor(),
                         col_factor()
                       ))
 
-#' tx2gene translation table
-#' ```{r CHANGEME2,eval=FALSE,echo=FALSE}
-#' # This file is necessary if your species has more than one transcript per gene.
-#' #
-#' # It should then contain two columns, tab delimited, the first one with the transcript
-#' # IDs and the second one the corresponding
-#' #
-#' # If your species has only one transcript per gene, e.g. Picea abies v1, then
-#' # comment the next line
-#' ```
-tx2gene <- suppressMessages(read_delim(here("reference/annotation/CHANGE-ME"),delim="\t",
-                                 col_names=c("TXID","GENE")))
-
 #' # Raw data
-filelist <- list.files(here("data/salmon"), 
-                          recursive = TRUE, 
-                          pattern = "quant.sf",
-                          full.names = TRUE)
-
-#' Sanity check to ensure that the data is sorted according to the sample info
-#' ```{r CHANGEME3,eval=FALSE,echo=FALSE}
-#' # This step is to validate that the salmon files are inthe same order as 
-#' # described in the samples object. If not, then they need to be sorted
-#' ````
-stopifnot(all(match(sub("_sortmerna.*","",basename(dirname(filelist))),
-                    samples$SampleID) == 1:nrow(samples)))
-
-#' name the file list vector
-names(filelist) <- samples$SampleID
-
 #' Read the expression at the gene level
 #' ```{r CHANGEME4,eval=FALSE,echo=FALSE}
 #' If the species has only one transcript per gene, replace with the following
 #' counts <- suppressMessages(round(tximport(files = filelist, type = "salmon",txOut=TRUE)$counts))
 #' ```
-counts <- suppressMessages(round(tximport(files = filelist, 
-                                  type = "salmon",
-                                  tx2gene=tx2gene)$counts))
+counts <- read_tsv(here("data/featureCounts/merged_gene_counts.txt"),
+                                    col_types = cols(
+                                      .default = col_integer(),
+                                      ENSEMBL_ID = col_character()
+                                    )) %>% column_to_rownames("ENSEMBL_ID")
+
+#' Sanity check to ensure that the data is sorted according to the sample info
+stopifnot(all(samples$ID == colnames(counts)))
+
 
 #' ## Quality Control
 #' * Check how many genes are never expressed
@@ -107,7 +83,7 @@ sprintf("%s%% percent (%s) of %s genes are not expressed",
 dat <- tibble(x=colnames(counts),y=colSums(counts)) %>% 
   bind_cols(samples)
 
-ggplot(dat,aes(x,y,fill=CHANGEME)) + geom_col() + 
+ggplot(dat,aes(x,y,fill=TISSUE)) + geom_col() + 
   scale_y_continuous(name="reads") +
   theme(axis.text.x=element_text(angle=90,size=4),axis.title.x=element_blank())
 
@@ -131,16 +107,17 @@ ggplot(melt(log10(rowMeans(counts))),aes(x=value)) +
 #' # If you have more, add them as needed.
 #' ```
 dat <- as.data.frame(log10(counts)) %>% utils::stack() %>% 
-  mutate(CHANGEME=samples$CHANGEME[match(ind,samples$CHANGEME)]) %>% 
-  mutate(SamplingTime=samples$SamplingTime[match(ind,samples$SampleID)])
+  mutate(TISSUE=samples$TISSUE[match(ind,samples$ID)]) %>% 
+  mutate(TIME=samples$TIME[match(ind,samples$ID)]) %>% 
+  mutate(TREATMENT=samples$TREATMENT[match(ind,samples$ID)])
 
-ggplot(dat,aes(x=values,group=ind,col=CHANGEME)) + 
+ggplot(dat,aes(x=values,group=ind,col=TISSUE)) + 
   geom_density() + ggtitle("sample raw counts distribution") +
   scale_x_continuous(name="per gene raw counts (log10)")
 
 #' ## Export
-dir.create(here("data/analysis/salmon"),showWarnings=FALSE,recursive=TRUE)
-write.csv(counts,file=here("data/analysis/salmon/raw-unormalised-gene-expression_data.csv"))
+dir.create(here("data/analysis/featureCounts"),showWarnings=FALSE,recursive=TRUE)
+write.csv(counts,file=here("data/analysis/featureCounts/raw-unormalised-gene-expression_data.csv"))
 
 #' # Data normalisation 
 #' ## Preparation
@@ -156,9 +133,12 @@ write.csv(counts,file=here("data/analysis/salmon/raw-unormalised-gene-expression
 dds <- DESeqDataSetFromMatrix(
   countData = counts,
   colData = samples,
-  design = ~ CHANGEME)
+  design = ~ TISSUE * CONDITION)
 
-save(dds,file=here("data/analysis/salmon/dds.rda"))
+#' ## Remove bad sample 
+dds <- dds[,-match("P14065_119",colnames(dds))]
+
+save(dds,file=here("data/analysis/featureCounts/dds.rda"))
 
 #' Check the size factors (_i.e._ the sequencing library size effect)
 #' 
@@ -166,6 +146,7 @@ dds <- estimateSizeFactors(dds)
 sizes <- sizeFactors(dds)
 pander(sizes)
 boxplot(sizes, main="Sequencing libraries size factor")
+abline(h=1,lty=2,col="grey")
 
 #' ## Variance Stabilising Transformation
 vsd <- varianceStabilizingTransformation(dds, blind=TRUE)
@@ -189,10 +170,7 @@ percent <- round(summary(pc)$importance[2,]*100)
 nvar=2
 
 #' An the number of possible combinations
-#' ```{r CHANGEME8,eval=FALSE,echo=FALSE}
-#' This needs to be adapted to your study design. Add or drop variables aas needed.
-#' ```
-nlevel=nlevels(dds$MDay) * nlevels(dds$MGenotype)
+nlevel=nlevels(dds$TISSUE) * nlevels(dds$CONDITION)
 
 #' We plot the percentage explained by the different components, the
 #' red line represent the number of variable in the model, the orange line
@@ -206,8 +184,6 @@ ggplot(tibble(x=1:length(percent),y=cumsum(percent)),aes(x=x,y=y)) +
   geom_hline(yintercept=cumsum(percent)[nlevel],colour="orange",linetype="dashed",size=0.5)
   
 #' ### 3 first dimensions
-mar=c(5.1,4.1,4.1,2.1)
-
 #' The PCA shows that a large fraction of the variance is 
 #' explained by both variables.
 scatterplot3d(pc$x[,1],
@@ -216,24 +192,26 @@ scatterplot3d(pc$x[,1],
               xlab=paste("Comp. 1 (",percent[1],"%)",sep=""),
               ylab=paste("Comp. 2 (",percent[2],"%)",sep=""),
               zlab=paste("Comp. 3 (",percent[3],"%)",sep=""),
-              color=pal[as.integer(dds$CHANGEME)],
-              pch=c(17:19)[as.integer(dds$CHANGEME)])
+              color=pal[as.integer(dds$CONDITION)],
+              pch=c(17,19)[as.integer(dds$TISSUE)])
 legend("topleft",
-       fill=pal[1:nlevels(dds$CHANGEME)],
-       legend=levels(dds$CHANGEME))
+       fill=pal[1:nlevels(dds$CONDITION)],
+       legend=levels(dds$CONDITION))
 
 legend("topright",
-       pch=17:19,
-       legend=levels(dds$CHANGEME))
+       pch=c(17,19),
+       legend=levels(dds$TISSUE))
 
 par(mar=mar)
 
 #' ### 2D
 pc.dat <- bind_cols(PC1=pc$x[,1],
                     PC2=pc$x[,2],
-                    samples)
+                    as.data.frame(colData(dds)))
 
-p <- ggplot(pc.dat,aes(x=PC1,y=PC2,col=CHANGEME,shape=CHANGEME,text=CHANGEME)) + 
+#' The most variance comes from the tissues. In the leaf, the time has more effect than the 
+#' treatment, while this look the opposite in the apex.
+p <- ggplot(pc.dat,aes(x=PC1,y=PC2,col=CONDITION,shape=TISSUE,text=ID)) + 
   geom_point(size=2) + 
   ggtitle("Principal Component Analysis",subtitle="variance stabilized counts")
 
@@ -245,10 +223,10 @@ ggplotly(p) %>%
 #' 
 #' Filter for noise
 #' 
-conds <- factor(paste(samples$CHANGEME,samples$CHANGEME))
+conds <- factor(paste(dds$TISSUE,dds$CONDITION))
 sels <- rangeFeatureSelect(counts=vst,
                            conditions=conds,
-                           nrep=3)
+                           nrep=2)
 vst.cutoff <- 2
 
 #' * Heatmap of "all" genes
@@ -263,7 +241,10 @@ hm <- heatmap.2(t(scale(t(vst[sels[[vst.cutoff+1]],]))),
 plot(as.hclust(hm$colDendrogram),xlab="",sub="")
 
 #' ## Conclusion
-#' CHANGEME
+#'The main differences in the leaf samples are according to the days of sampling.
+#'There are no obvious differences at day 3 between treatments but it looks different at day 1 with higher differences.
+#' In the case of the apex, the bigger differences appear at day 3. 
+#' There is a clear separation at day 1 too but day 0 appear grouped close to at 1
 #' ```{r empty,eval=FALSE,echo=FALSE}
 #' ```
 #'

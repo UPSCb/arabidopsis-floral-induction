@@ -41,19 +41,30 @@ mar <- par("mar")
 #' The example below has 2 variables MGenotype and MDay. These 
 #' need replacing by the variable(s) of interest in your project
 #' ```
-"line_plot" <- function(dds=dds,vst=vst,gene_id=gene_id){
+"line_plot" <- function(dds=dds,vst=vst,gene_id=gene_id,gene_name=character(0)){
     message(paste("Plotting",gene_id))
     sel <- grepl(gene_id,rownames(vst))
     stopifnot(sum(sel)==1)
-
-    p <- ggplot(bind_cols(as.data.frame(colData(dds)),
-                          data.frame(value=vst[sel,])),
-                aes(x=MDay,y=value,col=MGenotype,group=MGenotype)) +
-        geom_point() + geom_smooth() +
+    
+    d <- bind_cols(as.data.frame(colData(dds)),
+                   data.frame(value=vst[sel,]))
+    p <- ggplot(d,
+                aes(x=TIME,y=value,col=TREATMENT)) + 
+        facet_wrap(.~TISSUE) +
+        geom_point() + 
         scale_y_continuous(name="VST expression") + 
-        ggtitle(label=paste("Expression for: ",gene_id))
+        ggtitle(label=paste("Expression for: ",gene_id,ifelse(length(gene_name)>0,gene_name,"")))
     
     suppressMessages(suppressWarnings(plot(p)))
+    
+    p <- ggplot(d,
+                aes(x=CONDITION,y=value,col=TISSUE,group=TISSUE)) +
+        geom_point() + geom_smooth() +
+        scale_y_continuous(name="VST expression") + 
+        ggtitle(label=paste("Expression for: ",gene_id,ifelse(length(gene_name)>0,gene_name,"")))
+    
+    suppressMessages(suppressWarnings(plot(p)))
+    
     return(NULL)
 }
 
@@ -170,7 +181,7 @@ mar <- par("mar")
     if(verbose){
         message(sprintf("There are %s genes that are DE with the following parameters: FDR <= %s, |log2FC| >= %s, base mean expression > %s",
                         sum(sel),
-                        lfc,padj,expression_cutoff))
+                        padj,lfc,expression_cutoff))
     }
             
     if(export){
@@ -181,12 +192,17 @@ mar <- par("mar")
         write.csv(res[sel,],file.path(default_dir,paste0(default_prefix,"genes.csv")))
     }
     if(plot){
-        heatmap.2(t(scale(t(vst[sel,sample_sel]))),
-                  distfun = pearson.dist,
-                  hclustfun = function(X){hclust(X,method="ward.D2")},
-                  trace="none",col=hpal,labRow = FALSE,
-                  labCol=labels[sample_sel]
-        )
+        if(sum(sel) > 1){
+            heatmap.2(t(scale(t(vst[sel,sample_sel]))),
+                      distfun = pearson.dist,
+                      hclustfun = function(X){hclust(X,method="ward.D2")},
+                      trace="none",col=hpal,labRow = FALSE,
+                      labCol=labels[sample_sel])
+        } else {
+            
+            warning("There are not enough DE genes to create a heatmap")
+            
+        }
     }
     return(list(all=rownames(res[sel,]),
                 up=rownames(res[sel & res$log2FoldChange > 0,]),
@@ -199,7 +215,7 @@ mar <- par("mar")
 #' that contains a DESeqDataSet object. If you ran the 
 #' biological QA template, you need not change anything
 #' ```
-load(here("data/analysis/salmon/dds.rda"))
+load(here("data/analysis/featureCounts/dds.rda"))
 
 #' ## Normalisation for visualisation
 vsd <- varianceStabilizingTransformation(dds,blind=FALSE)
@@ -216,19 +232,30 @@ save(vst,file=here("data/analysis/DE/vst-aware.rda"))
 #' Note that for the plot to work, you also need to edit the first function (`line_plot`)
 #' at the top of this file
 #' ```
-goi <- read_lines(here("doc/goi.txt"))
-stopifnot(all(goi %in% rownames(vst)))
-dev.null <- lapply(goi,line_plot,dds=dds,vst=vst)
+goi <- read_csv(here("doc/Candidates_and_flowering_genes.csv"))
+stopifnot(all(goi$ID %in% rownames(vst)))
+dev.null <- apply(goi,1,function(ro){line_plot(dds=dds,vst=vst,gene_id = ro[2],gene_name = ro[1])})
 
 #' ## Differential Expression
-dds <- DESeq(dds)
+#' ### Apex
+ddsApex <- dds[,dds$TISSUE=="APEX"]
+ddsApex <- cbind(ddsApex,ddsApex[,ddsApex$TREATMENT=="Na"])
+ddsApex$TREATMENT[ddsApex$TREATMENT=="Na"] <- rep(c("Mock","Dexa"),each=3)
+ddsApex$TREATMENT <- droplevels(ddsApex$TREATMENT)
+design(ddsApex) <- ~ TIME * TREATMENT
+ddsApex <- DESeq(ddsApex)
+
+#' Update the vst for convenience
+vsdApex <- varianceStabilizingTransformation(ddsApex,blind=FALSE)
+vstApex <- assay(vsdApex)
+vstApex <- vstApex - min(vstApex)
 
 #' * Dispersion estimation
 #' The dispersion estimation is adequate
-plotDispEsts(dds)
+plotDispEsts(ddsApex)
 
 #' Check the different contrasts
-resultsNames(dds)
+resultsNames(ddsApex)
 
 #' ## Results
 #' #' ```{r res, echo=FALSE,eval=FALSE}
@@ -255,6 +282,19 @@ resultsNames(dds)
 #'contrast1 <- extract_results(dds=dds,vst=vst,contrast="CHANGEME")
 #' ```
 
+AdexaT1 <- extract_results(ddsApex,vstApex,
+                          contrast = "TIMET1.TREATMENTDexa",
+                          default_prefix = "Apex_Dexa-vs-Mock_T1_",
+                          labels = ddsApex$TREATMENT,
+                          sample_sel = ddsApex$TIME=="T1" 
+                        )
+
+AdexaT3 <- extract_results(ddsApex,vstApex,
+                          contrast = "TIMET3.TREATMENTDexa",
+                          default_prefix = "Apex_Dexa-vs-Mock_T3_",
+                          labels = ddsApex$TREATMENT,
+                          sample_sel = ddsApex$TIME=="T3")
+
 #' ### Venn Diagram
 #' ```{r venn, echo=FALSE,eval=FALSE}
 #' CHANGEME - Here, you typically would have run several contrasts and you want
@@ -263,30 +303,105 @@ resultsNames(dds)
 #' In the examples below, we assume that these resutls have been saved in a list
 #' called `res.list`
 #' ```
+res.list <- list(dexaT1=AdexaT1,
+                 dexaT3=AdexaT3)
 
 #' #### All DE genes
-#' ```{r venn2, echo=FALSE,eval=FALSE}
-#'grid.newpage()
-#'grid.draw(venn.diagram(lapply(res.list,"[[","all"),
-#'                       NULL,
-#'                       fill=pal[1:3]))
-#' ```
+grid.newpage()
+grid.draw(venn.diagram(x=lapply(res.list,"[[","all"),
+            filename=NULL,category.names=names(res.list),fill=pal[1:2]))
 
 #' #### DE genes (up in mutant)
-#' ```{r venn3, echo=FALSE,eval=FALSE}
-#'grid.newpage()
-#'grid.draw(venn.diagram(lapply(res.list,"[[","up"),
-#'                       NULL,
-#'                       fill=pal[1:3]))
-#' ```
+grid.newpage()
+grid.draw(venn.diagram(x=lapply(res.list,"[[","up"),
+                       filename=NULL,category.names=names(res.list),fill=pal[1:2]))
 
 #' #### DE genes (up in control)
-#' ```{r venn4, echo=FALSE,eval=FALSE}
-#'grid.newpage()
-#'grid.draw(venn.diagram(lapply(res.list,"[[","dn"),
-#'                       NULL,
-#'                       fill=pal[1:3]))
+grid.newpage()
+grid.draw(venn.diagram(x=lapply(res.list,"[[","dn"),
+                       filename=NULL,category.names=names(res.list),fill=pal[1:2]))
+#' ### Leaf
+ddsLeaf <- dds[,dds$TISSUE=="LEAF"]
+ddsLeaf <- cbind(ddsLeaf,ddsLeaf[,ddsLeaf$TREATMENT=="Na"])
+ddsLeaf$TREATMENT[ddsLeaf$TREATMENT=="Na"] <- rep(c("Mock","Dexa"),each=3)
+ddsLeaf$TREATMENT <- droplevels(ddsLeaf$TREATMENT)
+design(ddsLeaf) <- ~ TIME * TREATMENT
+ddsLeaf <- DESeq(ddsLeaf)
+
+#' Update the vst for convenience
+vsdLeaf <- varianceStabilizingTransformation(ddsLeaf,blind=FALSE)
+vstLeaf <- assay(vsdLeaf)
+vstLeaf <- vstLeaf - min(vstLeaf)
+
+#' * Dispersion estimation
+#' The dispersion estimation is adequate
+plotDispEsts(ddsLeaf)
+
+#' Check the different contrasts
+resultsNames(ddsLeaf)
+
+#' ## Results
+#' #' ```{r res, echo=FALSE,eval=FALSE}
+#' CHANGEME - here you need to define the contrast you want to 
+#' study - see the example in the next block. 
+#' 
+#' The `contrast` can be given
+#' by name, as a list (numerator/denominator) or as a vector of weight (e.g. c(0,1));
+#' read the DESeq2 vignette for more info
+#' 
+#' The `label` argument is typically one (or a combination) of the metadata stored in colData
+#' 
+#' The function allows for looking at the independent filtering results using `debug=TRUE`
+#' 
+#' If you are not satisfied with the default from DESeq2, you can set your own cutoff using `expression_cutoff`
+#' 
+#' You can change the default output file prefix using `default_prefix`
+#' 
+#' You can select the set of samples to be added to the `heatmap`, using the `sample_sel` argument. It takes a logical vector.
+#' 
 #' ```
+
+#' ```{r contrast, echo=FALSE,eval=FALSE}
+#'contrast1 <- extract_results(dds=dds,vst=vst,contrast="CHANGEME")
+#' ```
+
+dexaT1 <- extract_results(ddsLeaf,vstLeaf,
+                          contrast = "TIMET1.TREATMENTDexa",
+                          default_prefix = "Leaf_Dexa-vs-Mock_T1_",
+                          labels = ddsLeaf$TREATMENT,
+                          sample_sel = ddsLeaf$TIME=="T1")
+
+dexaT3 <- extract_results(ddsLeaf,vstLeaf,
+                          contrast = "TIMET3.TREATMENTDexa",
+                          default_prefix = "Leaf_Dexa-vs-Mock_T3_",
+                          labels = ddsLeaf$TREATMENT,
+                          sample_sel = ddsLeaf$TIME=="T3")
+
+#' ### Venn Diagram
+#' ```{r venn, echo=FALSE,eval=FALSE}
+#' CHANGEME - Here, you typically would have run several contrasts and you want
+#' to assess their overlap plotting VennDiagrams.
+#' 
+#' In the examples below, we assume that these resutls have been saved in a list
+#' called `res.list`
+#' ```
+res.list <- list(dexaT1=dexaT1,
+                 dexaT3=dexaT3)
+
+#' #### All DE genes
+grid.newpage()
+grid.draw(venn.diagram(x=lapply(res.list,"[[","all"),
+                       filename=NULL,category.names=names(res.list),fill=pal[1:2]))
+
+#' #### DE genes (up in mutant)
+grid.newpage()
+grid.draw(venn.diagram(x=lapply(res.list,"[[","up"),
+                       filename=NULL,category.names=names(res.list),fill=pal[1:2]))
+
+#' #### DE genes (up in control)
+grid.newpage()
+grid.draw(venn.diagram(x=lapply(res.list,"[[","dn"),
+                       filename=NULL,category.names=names(res.list),fill=pal[1:2]))
 
 #' ### Gene Ontology enrichment
 #' ```{r go, echo=FALSE,eval=FALSE}
@@ -305,7 +420,7 @@ resultsNames(dds)
 #' of only the `id` and `padj` columns. The latter can be used as input for _e.g._
 #' REVIGO.
 #' ```
-background <- rownames(vst)[featureSelect(vst,dds$MGenotype,exp=CHANGEME)]
+background <- rownames(vstApex)[featureSelect(vstApex,ddsApex$CONDITION,exp=0.5)]
 
 enr.list <- lapply(res.list,function(r){
     lapply(r,gopher,background=background,task="go",url="athaliana")
@@ -313,18 +428,18 @@ enr.list <- lapply(res.list,function(r){
 
 dev.null <- lapply(names(enr.list),function(n){
     r <- enr.list[[n]]
-    write_delim(r$all$go,path=file.path(file.path(here("data/analysis/DE",
-                                              paste0(n,"-all-DE-genes_GO-enrichment.txt")))))
-    write_delim(r$all$go[,c("id","padj")],path=file.path(file.path(here("data/analysis/DE",
-                                                       paste0(n,"-all-DE-genes_GO-enrichment_for-REVIGO.txt")))))
-    write_csv(r$up$go,path=file.path(file.path(here("data/analysis/DE",
-                                                 paste0(n,"-up-DE-genes_GO-enrichment.txt")))))
-    write_delim(r$up$go[,c("id","padj")],path=file.path(file.path(here("data/analysis/DE",
-                                                                        paste0(n,"-up-DE-genes_GO-enrichment_for-REVIGO.txt")))))    
-    write_csv(r$dn$go,path=file.path(file.path(here("data/analysis/DE",
-                                                 paste0(n,"-down-DE-genes_GO-enrichment.txt")))))
-    write_delim(r$dn$go[,c("id","padj")],path=file.path(file.path(here("data/analysis/DE",
-                                                                        paste0(n,"-down-DE-genes_GO-enrichment_for-REVIGO.txt")))))    
+    write_tsv(r$all$go,path=file.path(file.path(here("data/analysis/DE",
+                                              paste0(n,"-all-DE-genes_GO-enrichment.tsv")))))
+    write_tsv(r$all$go[,c("id","padj")],path=file.path(file.path(here("data/analysis/DE",
+                                                       paste0(n,"-all-DE-genes_GO-enrichment_for-REVIGO.tsv")))))
+    write_tsv(r$up$go,path=file.path(file.path(here("data/analysis/DE",
+                                                 paste0(n,"-up-DE-genes_GO-enrichment.tsv")))))
+    write_tsv(r$up$go[,c("id","padj")],path=file.path(file.path(here("data/analysis/DE",
+                                                                        paste0(n,"-up-DE-genes_GO-enrichment_for-REVIGO.tsv")))))
+    write_tsv(r$dn$go,path=file.path(file.path(here("data/analysis/DE",
+                                                 paste0(n,"-down-DE-genes_GO-enrichment.tsv")))))
+    write_tsv(r$dn$go[,c("id","padj")],path=file.path(file.path(here("data/analysis/DE",
+                                                                        paste0(n,"-down-DE-genes_GO-enrichment_for-REVIGO.tsv")))))
 })
 
 #' # Session Info 
