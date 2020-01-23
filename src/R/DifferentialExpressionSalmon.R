@@ -1,6 +1,6 @@
 #' ---
-#' title: "Differential Expression"
-#' author: "CHANGEME"
+#' title: "Differential Expression Salmon"
+#' author: "Jesus Praena"
 #' date: "`r Sys.Date()`"
 #' output:
 #'  html_document:
