@@ -10,20 +10,23 @@
 #' # Setup
 
 #' * Libraries
-suppressPackageStartupMessages(library(data.table))
-suppressPackageStartupMessages(library(DESeq2))
-suppressPackageStartupMessages(library(gplots))
-suppressPackageStartupMessages(library(here))
-suppressPackageStartupMessages(library(hyperSpec))
-suppressPackageStartupMessages(library(RColorBrewer))
-suppressPackageStartupMessages(library(tidyverse))
-suppressPackageStartupMessages(library(VennDiagram))
+suppressPackageStartupMessages({
+    library(data.table)
+    library(DESeq2)
+    library(gplots)
+    library(here)
+    library(hyperSpec)
+    library(RColorBrewer)
+    library(tidyverse)
+    library(VennDiagram)
+})
 
 #' * Helper files
-suppressMessages(source(here("UPSCb-common/src/R/featureSelection.R")))
-suppressMessages(source(here("UPSCb-common/src/R/plotMA.R")))
-suppressMessages(source(here("UPSCb-common/src/R/volcanoPlot.R")))
-suppressMessages(source(here("UPSCb-common/src/R/gopher.R")))
+suppressMessages({
+    source(here("UPSCb-common/src/R/featureSelection.R"))
+    source(here("UPSCb-common/src/R/volcanoPlot.R"))
+    source(here("UPSCb-common/src/R/gopher.R"))
+})
 
 #' * Graphics
 pal=brewer.pal(8,"Dark2")
@@ -225,7 +228,7 @@ dir.create(here("data/analysis/DE"),showWarnings=FALSE)
 save(vst,file=here("data/analysis/DE/salmon-vst-aware.rda"))
 
 #' ## Gene of interests
-#' ```{r load, echo=FALSE,eval=FALSE}
+#' ```{r goi, echo=FALSE,eval=FALSE}
 #' CHANGEME - Here, you can plot the expression pattern of your gene of
 #' interest. You need to have a list of genes in a text file, one geneID per line
 #' The ID should exist in your vst data.
@@ -303,8 +306,8 @@ AdexaT3 <- extract_results(ddsApex,vstApex,
 #' In the examples below, we assume that these resutls have been saved in a list
 #' called `res.list`
 #' ```
-res.list <- list(dexaT1=AdexaT1,
-                 dexaT3=AdexaT3)
+res.list <- list(AdexaT1=AdexaT1,
+                 AdexaT3=AdexaT3)
 
 #' #### All DE genes
 grid.newpage()
@@ -360,33 +363,22 @@ resultsNames(ddsLeaf)
 #' You can select the set of samples to be added to the `heatmap`, using the `sample_sel` argument. It takes a logical vector.
 #' 
 #' ```
-
-#' ```{r contrast, echo=FALSE,eval=FALSE}
-#'contrast1 <- extract_results(dds=dds,vst=vst,contrast="CHANGEME")
-#' ```
-
-dexaT1 <- extract_results(ddsLeaf,vstLeaf,
+#' 
+LdexaT1 <- extract_results(ddsLeaf,vstLeaf,
                           contrast = "TIMET1.TREATMENTDexa",
                           default_prefix = "Salmon-Leaf_Dexa-vs-Mock_T1_",
                           labels = ddsLeaf$TREATMENT,
                           sample_sel = ddsLeaf$TIME=="T1")
 
-dexaT3 <- extract_results(ddsLeaf,vstLeaf,
+LdexaT3 <- extract_results(ddsLeaf,vstLeaf,
                           contrast = "TIMET3.TREATMENTDexa",
                           default_prefix = "Salmon-Leaf_Dexa-vs-Mock_T3_",
                           labels = ddsLeaf$TREATMENT,
                           sample_sel = ddsLeaf$TIME=="T3")
 
 #' ### Venn Diagram
-#' ```{r venn, echo=FALSE,eval=FALSE}
-#' CHANGEME - Here, you typically would have run several contrasts and you want
-#' to assess their overlap plotting VennDiagrams.
-#' 
-#' In the examples below, we assume that these resutls have been saved in a list
-#' called `res.list`
-#' ```
-res.list <- list(dexaT1=dexaT1,
-                 dexaT3=dexaT3)
+res.list <- list(LdexaT1=LdexaT1,
+                 LdexaT3=LdexaT3)
 
 #' #### All DE genes
 grid.newpage()
@@ -402,6 +394,27 @@ grid.draw(venn.diagram(x=lapply(res.list,"[[","up"),
 grid.newpage()
 grid.draw(venn.diagram(x=lapply(res.list,"[[","dn"),
                        filename=NULL,category.names=names(res.list),fill=pal[1:2]))
+
+#' ### Combined tissues
+res.list <- list(AdexaT1=AdexaT1,
+                 AdexaT3=AdexaT3,
+                 LdexaT1=LdexaT1,
+                 LdexaT3=LdexaT3)
+
+#' #### All DE transcripts
+grid.newpage()
+grid.draw(venn.diagram(x=lapply(res.list,"[[","all"),
+                       filename=NULL,category.names=names(res.list),fill=pal[1:4]))
+
+#' #### DE transcripts (up in mutant)
+grid.newpage()
+grid.draw(venn.diagram(x=lapply(res.list,"[[","up"),
+                       filename=NULL,category.names=names(res.list),fill=pal[1:4]))
+
+#' #### DE transcripts (up in control)
+grid.newpage()
+grid.draw(venn.diagram(x=lapply(res.list,"[[","dn"),
+                       filename=NULL,category.names=names(res.list),fill=pal[1:4]))
 
 #' ### Gene Ontology enrichment
 #' ```{r go, echo=FALSE,eval=FALSE}
@@ -420,7 +433,9 @@ grid.draw(venn.diagram(x=lapply(res.list,"[[","dn"),
 #' of only the `id` and `padj` columns. The latter can be used as input for _e.g._
 #' REVIGO.
 #' ```
-background <- rownames(vstApex)[featureSelect(vstApex,ddsApex$CONDITION,exp=0.5)]
+background <- rownames(vst)[featureSelect(vst,dds$CONDITION,exp=0.2)]
+
+stopifnot(all(unlist(res.list) %in% background))
 
 enr.list <- lapply(res.list,function(r){
     lapply(r,gopher,background=background,task="go",url="athaliana")
@@ -428,18 +443,24 @@ enr.list <- lapply(res.list,function(r){
 
 dev.null <- lapply(names(enr.list),function(n){
     r <- enr.list[[n]]
-    write_tsv(r$all$go,path=file.path(file.path(here("data/analysis/DE",
+    if(! is.null(r$all$go)){
+        write_tsv(r$all$go,path=file.path(file.path(here("data/analysis/DE",
                                               paste0(n,"Salmon-all-DE-genes_GO-enrichment.tsv")))))
-    write_tsv(r$all$go[,c("id","padj")],path=file.path(file.path(here("data/analysis/DE",
-                                                       paste0(n,"Salmon-all-DE-genes_GO-enrichment_for-REVIGO.tsv")))))
-    write_tsv(r$up$go,path=file.path(file.path(here("data/analysis/DE",
-                                                 paste0(n,"Salmon-up-DE-genes_GO-enrichment.tsv")))))
-    write_tsv(r$up$go[,c("id","padj")],path=file.path(file.path(here("data/analysis/DE",
-                                                                        paste0(n,"Salmon-up-DE-genes_GO-enrichment_for-REVIGO.tsv")))))
-    write_tsv(r$dn$go,path=file.path(file.path(here("data/analysis/DE",
-                                                 paste0(n,"Salmon-down-DE-genes_GO-enrichment.tsv")))))
-    write_tsv(r$dn$go[,c("id","padj")],path=file.path(file.path(here("data/analysis/DE",
-                                                                        paste0(n,"Salmon-down-DE-genes_GO-enrichment_for-REVIGO.tsv")))))
+        write_tsv(r$all$go[,c("id","padj")],path=file.path(file.path(here("data/analysis/DE",
+                                                                          paste0(n,"Salmon-all-DE-genes_GO-enrichment_for-REVIGO.tsv")))))
+    }
+    if(! is.null(r$up$go)){
+        write_tsv(r$up$go,path=file.path(file.path(here("data/analysis/DE",
+                                                        paste0(n,"Salmon-up-DE-genes_GO-enrichment.tsv")))))
+        write_tsv(r$up$go[,c("id","padj")],path=file.path(file.path(here("data/analysis/DE",
+                                                                         paste0(n,"Salmon-up-DE-genes_GO-enrichment_for-REVIGO.tsv")))))
+    }
+    if(! is.null(r$dn$go)){
+        write_tsv(r$dn$go,path=file.path(file.path(here("data/analysis/DE",
+                                                        paste0(n,"Salmon-down-DE-genes_GO-enrichment.tsv")))))
+        write_tsv(r$dn$go[,c("id","padj")],path=file.path(file.path(here("data/analysis/DE",
+                                                                         paste0(n,"Salmon-down-DE-genes_GO-enrichment_for-REVIGO.tsv")))))
+    }
 })
 
 #' # Session Info 

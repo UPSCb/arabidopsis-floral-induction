@@ -87,12 +87,6 @@ counts <- suppressMessages(round(tximport(files = filelist,
                                           type = "salmon",
                                           tx2gene=tx2gene)$counts))
 
-#' This is for transcript counts
-tx <- suppressMessages(tximport(files = filelist, 
-                                      type = "salmon",
-                                      txOut = TRUE))
-tx.counts <- round(tx$counts)
-
 # counts <- summarizeToGene(tx,tx2gene=tx2gene)
 
 #' ## Quality Control
@@ -122,7 +116,7 @@ ggplot(dat,aes(x,y,fill=TISSUE)) + geom_col() +
 #' and displayed on a log10 scale.
 #' 
 #' The cumulative gene coverage is as expected
-ggplot(melt(log10(rowMeans(counts))),aes(x=value)) + 
+ggplot(data.frame(value=log10(rowMeans(counts))),aes(x=value)) + 
   geom_density() + ggtitle("gene mean raw counts distribution") +
   scale_x_continuous(name="mean raw counts (log10)")
 
@@ -146,7 +140,8 @@ ggplot(dat,aes(x=values,group=ind,col=TISSUE)) +
 
 #' ## Export
 dir.create(here("data/analysis/salmon"),showWarnings=FALSE,recursive=TRUE)
-write.csv(counts,file=here("data/analysis/salmon/raw-unormalised-gene-expression_data.csv"))
+write_csv(as.data.frame(counts) %>% rownames_to_column("ID"),
+          here("data/analysis/salmon/raw-unormalised-gene-expression_data.csv"))
 
 #' # Data normalisation 
 #' ## Preparation
