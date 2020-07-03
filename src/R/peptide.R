@@ -11,6 +11,7 @@
 #' # Setup
 suppressPackageStartupMessages({
   library(Biostrings)
+  library(dplyr)
   library(genomeIntervals)
   library(GenomicRanges)
   library(here)
@@ -53,7 +54,9 @@ ovl <- findOverlaps(GRanges(seqnames=best.blast$blf$subject.id,
                                                        best.blast$blf$subject.end)),
                                             strand=ifelse(best.blast$blf$subject.start < best.blast$blf$subject.end,"+","-")),genesGR)
                      
-res <- cbind(best.blast$blf[queryHits(ovl),],genesGR[subjectHits(ovl),c("ID","symbol","full_name")])
+res <- full_join(cbind(best.blast$blf[queryHits(ovl),],
+                   genesGR[subjectHits(ovl),c("ID","symbol","full_name")]),
+                   best.blast$blf[-queryHits(ovl),])
 
 #' # Export
 dir.create(here("data/analysis/peptides"),showWarnings=FALSE)
