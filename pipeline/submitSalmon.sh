@@ -3,15 +3,14 @@
 ## be verbose and print
 set -eux
 
-proj=u2019009
-mail=noemi.skorzinski@umu.se
+proj=u2019022
+mail=nicolas.delhomme@umu.se
 
-## process the argument
-ref=/mnt/picea/storage/reference/Arabidopsis-thaliana/ARAPORT11/indices/salmon/Araport11_all-201606_salmon-v14dot1.inx
+in=$(realpath ../data/trimmomatic)
+out=$(realpath ../data/salmon)
+ref=$(realpath ../reference/indices/salmon/Araport11_all-201606_salmon-v14dot1.inx)
 bind=/mnt:/mnt
-img=/mnt/picea/projects/singularity/salmon-0.14.1.simg
-in=/mnt/picea/projects/arabidopsis/mschmid/NS-tps1-kin10-snf4/trimmomatic
-out=/mnt/picea/projects/arabidopsis/mschmid/NS-tps1-kin10-snf4/salmon
+img=$(realpath ../singularity/salmon-0.14.1.simg)
 
 ## create the out dir
 if [ ! -d $out ]; then
@@ -27,5 +26,4 @@ for f in $(find $in -name "*_trimmomatic_1.fq.gz"); do
   -e $out/$fnam.err -o $out/$fnam.out -J salmon.$fnam \
   ../UPSCb-common/pipeline/runSalmon.sh -b $bind \
   -i $img $ref $f $in/${fnam}_2.fq.gz $out
-
 done

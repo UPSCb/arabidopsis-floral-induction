@@ -47,3 +47,5 @@ reference/
 *.log
 NCBI
 NCBI/
+singularity
+singularity/

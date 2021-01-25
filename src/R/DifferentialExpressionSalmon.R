@@ -6,6 +6,7 @@
 #'  html_document:
 #'    toc: true
 #'    number_sections: true
+#'    code_folding: hide
 #' ---
 #' # Setup
 
@@ -26,15 +27,13 @@ suppressMessages({
     source(here("UPSCb-common/src/R/featureSelection.R"))
     source(here("UPSCb-common/src/R/volcanoPlot.R"))
     source(here("UPSCb-common/src/R/gopher.R"))
+    source(here("Rtoolbox/src/plotEnrichedTreemap.R"))
 })
 
 #' * Graphics
 pal=brewer.pal(8,"Dark2")
 hpal <- colorRampPalette(c("blue","white","red"))(100)
 mar <- par("mar")
-
-#' TODO remember to add a function to check for correlation between logFC and 
-#' transcript length - check for the effective length
 
 #' * Functions
 #' 1. plot specific gene expression
@@ -212,6 +211,54 @@ mar <- par("mar")
                 dn=rownames(res[sel & res$log2FoldChange < 0,])))
 }
 
+#' 3. extract and plot the enrichment results
+extractEnrichmentResults <- function(enrichment,task="go",
+                                     diff.exp=c("all","up","dn"),
+                                     go.namespace=c("BP","CC","MF"),
+                                     genes=NULL,export=TRUE,plot=TRUE,
+                                     default_dir=here("data/analysis/DE"),
+                                     default_prefix="DE",
+                                     url="athaliana"){
+    # process args
+    diff.exp <- match.arg(diff.exp)
+    de <- switch (diff.exp,
+        all = "none",
+        up = "up",
+        dn = "down"
+    )
+    
+    # write out
+    if(export){
+        write_tsv(enrichment[[task]],
+                  path=here(default_dir,
+                            paste0(default_prefix,"-genes_GO-enrichment.tsv")))
+        if(!is.null(genes)){
+            write_tsv(
+                enrichedTermToGenes(genes=genes,terms=enrichment[[task]]$id,url=url,mc.cores=16L),
+                path=here(default_dir,
+                          paste0(default_prefix,"-enriched-term-to-genes.tsv"))
+            )
+        }
+    }
+    
+    if(plot){
+        sapply(go.namespace,function(ns){
+            titles <- c(BP="Biological Process",
+                        CC="Cellular Component",
+                        MF="Molecular Function")
+            suppressWarnings(tryCatch({plotEnrichedTreemap(enrichment,enrichment=task,
+                                namespace=ns,
+                                de=de,title=titles[ns])},
+                                error = function(e) {
+                                    message(paste("Treemap plot failed for",ns, 
+                                                  "because of:",e))
+                                    return(NULL)
+                                }))
+                            
+            })
+    }
+}
+
 #' * Data
 #' ```{r load, echo=FALSE,eval=FALSE}
 #' CHANGEME - here you are meant to load an RData object
@@ -235,9 +282,12 @@ save(vst,file=here("data/analysis/DE/salmon-vst-aware.rda"))
 #' Note that for the plot to work, you also need to edit the first function (`line_plot`)
 #' at the top of this file
 #' ```
-goi <- read_csv(here("doc/Candidates_and_flowering_genes.csv"))
+goi <- read_csv(here("doc/Candidates_and_flowering_genes.csv"),col_types=cols(.default=col_character()))
 stopifnot(all(goi$ID %in% rownames(vst)))
-dev.null <- apply(goi,1,function(ro){line_plot(dds=dds,vst=vst,gene_id = ro[2],gene_name = ro[1])})
+dev.null <- apply(goi,1,function(ro){
+    line_plot(dds=dds,vst=vst,
+              gene_id = ro[2],
+              gene_name = ro[1])})
 
 #' ## Differential Expression
 #' ### Apex
@@ -326,7 +376,7 @@ grid.draw(venn.diagram(x=lapply(res.list,"[[","dn"),
 #' ### Leaf
 ddsLeaf <- dds[,dds$TISSUE=="LEAF"]
 ddsLeaf <- cbind(ddsLeaf,ddsLeaf[,ddsLeaf$TREATMENT=="Na"])
-ddsLeaf$TREATMENT[ddsLeaf$TREATMENT=="Na"] <- rep(c("Mock","Dexa"),each=3)
+ddsLeaf$TREATMENT[ddsLeaf$TREATMENT=="Na"] <- rep(c("Mock","Dexa"),each=4)
 ddsLeaf$TREATMENT <- droplevels(ddsLeaf$TREATMENT)
 design(ddsLeaf) <- ~ TIME * TREATMENT
 ddsLeaf <- DESeq(ddsLeaf)
@@ -437,30 +487,21 @@ background <- rownames(vst)[featureSelect(vst,dds$CONDITION,exp=0.2)]
 
 stopifnot(all(unlist(res.list) %in% background))
 
-enr.list <- lapply(res.list,function(r){
+#' There are too few genes to generate an enrichment for the leaf, so we focus on the
+#' appices comparisons
+enr.list <- lapply(res.list[1:2],function(r){
     lapply(r,gopher,background=background,task="go",url="athaliana")
 })
 
 dev.null <- lapply(names(enr.list),function(n){
-    r <- enr.list[[n]]
-    if(! is.null(r$all$go)){
-        write_tsv(r$all$go,path=file.path(file.path(here("data/analysis/DE",
-                                              paste0(n,"Salmon-all-DE-genes_GO-enrichment.tsv")))))
-        write_tsv(r$all$go[,c("id","padj")],path=file.path(file.path(here("data/analysis/DE",
-                                                                          paste0(n,"Salmon-all-DE-genes_GO-enrichment_for-REVIGO.tsv")))))
-    }
-    if(! is.null(r$up$go)){
-        write_tsv(r$up$go,path=file.path(file.path(here("data/analysis/DE",
-                                                        paste0(n,"Salmon-up-DE-genes_GO-enrichment.tsv")))))
-        write_tsv(r$up$go[,c("id","padj")],path=file.path(file.path(here("data/analysis/DE",
-                                                                         paste0(n,"Salmon-up-DE-genes_GO-enrichment_for-REVIGO.tsv")))))
-    }
-    if(! is.null(r$dn$go)){
-        write_tsv(r$dn$go,path=file.path(file.path(here("data/analysis/DE",
-                                                        paste0(n,"Salmon-down-DE-genes_GO-enrichment.tsv")))))
-        write_tsv(r$dn$go[,c("id","padj")],path=file.path(file.path(here("data/analysis/DE",
-                                                                         paste0(n,"Salmon-down-DE-genes_GO-enrichment_for-REVIGO.tsv")))))
-    }
+    message(n)
+    lapply(names(enr.list[[n]]),function(de){
+        message(de)
+        extractEnrichmentResults(enr.list[[n]][[de]],
+                                 diff.exp=de,
+                                 genes=res.list[[n]][[de]],
+                                 default_prefix=paste(n,de,sep="-"))
+    })
 })
 
 #' # Session Info 

@@ -1,11 +1,12 @@
 #' ---
 #' title: "FLowering Time Induction Biological QA"
-#' author: "Jesús Praena"
+#' author: "Nicolas Delhomme & Jesús Praena"
 #' date: "`r Sys.Date()`"
 #' output:
 #'  html_document:
 #'    toc: true
 #'    number_sections: true
+#'    code_folding: hide
 #' ---
 #' # Setup
 #' * Libraries
@@ -19,7 +20,6 @@ suppressPackageStartupMessages({
   library(pander)
   library(plotly)
   library(RColorBrewer)
-  library(scatterplot3d)
   library(tidyverse)
   library(tximport)
   library(vsn)
@@ -120,6 +120,11 @@ ggplot(data.frame(value=log10(rowMeans(counts))),aes(x=value)) +
   geom_density() + ggtitle("gene mean raw counts distribution") +
   scale_x_continuous(name="mean raw counts (log10)")
 
+#' Also removing P14065_119
+ggplot(data.frame(value=log10(rowMeans(counts[,colnames(counts)!="P14065_119"]))),aes(x=value)) + 
+  geom_density() + ggtitle("gene mean raw counts distribution") +
+  scale_x_continuous(name="mean raw counts (log10)")
+
 #' The same is done for the individual samples colored by CHANGEME. 
 #' ```{r CHANGEME6,eval=FALSE,echo=FALSE}
 #' # In the following, the second mutate also needs changing, I kept it 
@@ -130,6 +135,16 @@ ggplot(data.frame(value=log10(rowMeans(counts))),aes(x=value)) +
 #' # If you have more, add them as needed.
 #' ```
 dat <- as.data.frame(log10(counts)) %>% utils::stack() %>% 
+  mutate(TISSUE=samples$TISSUE[match(ind,samples$ID)]) %>% 
+  mutate(TIME=samples$TIME[match(ind,samples$ID)]) %>% 
+  mutate(TREATMENT=samples$TREATMENT[match(ind,samples$ID)])
+
+ggplot(dat,aes(x=values,group=ind,col=TISSUE)) + 
+  geom_density() + ggtitle("sample raw counts distribution") +
+  scale_x_continuous(name="per gene raw counts (log10)")
+
+#' Removing P14065_119
+dat <- as.data.frame(log10(counts[,colnames(counts)!="P14065_119"])) %>% utils::stack() %>% 
   mutate(TISSUE=samples$TISSUE[match(ind,samples$ID)]) %>% 
   mutate(TIME=samples$TIME[match(ind,samples$ID)]) %>% 
   mutate(TREATMENT=samples$TREATMENT[match(ind,samples$ID)])
@@ -166,6 +181,7 @@ save(dds,file=here("data/analysis/salmon/dds.rda"))
 
 #' Check the size factors (_i.e._ the sequencing library size effect)
 #' 
+#' There is some variation -/+ 50%, but that's acceptable
 dds <- estimateSizeFactors(dds)
 sizes <- sizeFactors(dds)
 pander(sizes)
@@ -207,34 +223,13 @@ ggplot(tibble(x=1:length(percent),y=cumsum(percent)),aes(x=x,y=y)) +
   geom_vline(xintercept=nlevel,colour="orange",linetype="dashed",size=0.5) + 
   geom_hline(yintercept=cumsum(percent)[nlevel],colour="orange",linetype="dashed",size=0.5)
   
-#' ### 3 first dimensions
-#' The PCA shows that a large fraction of the variance is 
-#' explained by both variables.
-scatterplot3d(pc$x[,1],
-              pc$x[,2],
-              pc$x[,3],
-              xlab=paste("Comp. 1 (",percent[1],"%)",sep=""),
-              ylab=paste("Comp. 2 (",percent[2],"%)",sep=""),
-              zlab=paste("Comp. 3 (",percent[3],"%)",sep=""),
-              color=pal[as.integer(dds$CONDITION)],
-              pch=c(17,19)[as.integer(dds$TISSUE)])
-legend("topleft",
-       fill=pal[1:nlevels(dds$CONDITION)],
-       legend=levels(dds$CONDITION))
-
-legend("topright",
-       pch=c(17,19),
-       legend=levels(dds$TISSUE))
-
-par(mar=mar)
-
 #' ### 2D
+#' The most variance comes from the tissues. In the leaf, the time has more effect than the 
+#' treatment, while this look the opposite in the apex.
 pc.dat <- bind_cols(PC1=pc$x[,1],
                     PC2=pc$x[,2],
                     as.data.frame(colData(dds)))
 
-#' The most variance comes from the tissues. In the leaf, the time has more effect than the 
-#' treatment, while this look the opposite in the apex.
 p <- ggplot(pc.dat,aes(x=PC1,y=PC2,col=CONDITION,shape=TISSUE,text=ID)) + 
   geom_point(size=2) + 
   ggtitle("Principal Component Analysis",subtitle="variance stabilized counts")
@@ -250,25 +245,35 @@ ggplotly(p) %>%
 conds <- factor(paste(dds$TISSUE,dds$CONDITION))
 sels <- rangeFeatureSelect(counts=vst,
                            conditions=conds,
-                           nrep=2)
+                           nrep=3)
 vst.cutoff <- 2
 
 #' * Heatmap of "all" genes
 #' 
 hm <- heatmap.2(t(scale(t(vst[sels[[vst.cutoff+1]],]))),
-          distfun=pearson.dist,
-          hclustfun=function(X){hclust(X,method="ward.D2")},
-          labRow = NA,trace = "none",
-          labCol = conds,
-          col=hpal)
+                distfun=pearson.dist,
+                hclustfun=function(X){hclust(X,method="ward.D2")},
+                labRow = NA,trace = "none",
+                labCol = conds,
+                col=hpal)
 
-plot(as.hclust(hm$colDendrogram),xlab="",sub="")
+plot(as.hclust(hm$colDendrogram),xlab="",sub="",labels=paste(dds$ID,conds),cex=0.6)
 
 #' ## Conclusion
-#'The main differences in the leaf samples are according to the days of sampling.
-#'There are no obvious differences at day 3 between treatments but it looks different at day 1 with higher differences.
-#' In the case of the apex, the bigger differences appear at day 3. 
-#' There is a clear separation at day 1 too but day 0 appear grouped close to at 1
+#' The main differences in the leaf samples are according to the days of sampling. 
+#' The new T1 dexa samples cluster in T1 with a cluster of T1 havin both mock and Dexa.
+#' It would seem generally that the effect of Dexa vs. Mock in leaf at T1 is minimal.
+#' 
+#' For appices, the situation is somewhat different, the time and treatment seem to be both of
+#' importance. T0 samples merged with T1 dexa while T1 mock form its own cluster, possibly indicating a
+#' delay induced by the treatment. The newer samples form their own clusters, possibly indicating that 
+#' a batch effect (most likely due to sampling rather than sequencing as the leaf sample do not show such an effect)
+#' has a stronger influence than the biological signal. At T3 there is a clear separation between mock and dexa.
+#' 
+#' With regards to the batch observed in the new appices samples, it is however probably marginal as it is not visible in the
+#' first 2 dimension of the PCA, that contribute 80% of the variance. So it will be within the whole dataset 
+#' at most 3%. If anything, assuming the effect is due to the sampling, hence biological noise, it would only make the 
+#' comparison more robust.
 #' ```{r empty,eval=FALSE,echo=FALSE}
 #' ```
 #'
