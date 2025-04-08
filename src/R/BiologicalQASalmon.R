@@ -83,9 +83,10 @@ stopifnot(all(samples$ID==names(filelist)))
 #' counts <- suppressMessages(round(tximport(files = filelist, type = "salmon",txOut=TRUE)$counts))
 #' ```
 #' This gives us directly gene counts
-counts <- suppressMessages(round(tximport(files = filelist, 
-                                          type = "salmon",
-                                          tx2gene=tx2gene)$counts))
+txi <- suppressMessages(tximport(files = filelist, 
+                                 type = "salmon",
+                                 tx2gene=tx2gene))
+counts <- round(txi$counts)
 
 # counts <- summarizeToGene(tx,tx2gene=tx2gene)
 
@@ -169,8 +170,8 @@ write_csv(as.data.frame(counts) %>% rownames_to_column("ID"),
 #'  # It is technically irrelevant here, as we are only doing the quality assessment of the data, 
 #'  # but it does not harm setting it correctly for the differential expression analyses that may follow.
 #'  ```
-dds <- DESeqDataSetFromMatrix(
-  countData = counts,
+dds <- DESeqDataSetFromTximport(
+  txi=txi,
   colData = samples,
   design = ~ TISSUE * CONDITION)
 

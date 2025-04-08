@@ -273,6 +273,8 @@ vst <- assay(vsd)
 vst <- vst - min(vst)
 dir.create(here("data/analysis/DE"),showWarnings=FALSE)
 save(vst,file=here("data/analysis/DE/salmon-vst-aware.rda"))
+write_tsv(bind_cols(tibble(geneID=rownames(vst),as.data.frame(vst))),
+          here("data/analysis/DE/salmon-vst-aware.tsv"))
 
 #' ## Gene of interests
 #' ```{r goi, echo=FALSE,eval=FALSE}
