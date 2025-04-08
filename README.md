@@ -20,3 +20,7 @@ Integration of environmental and endogenous cues triggers floral induction at th
   
 ## Key words 
 Floral induction, Raffinose Family of Oligosaccharides (RFOs), raffinose synthase, raffinose, galactinol, metabolomic, carbohydrate status 
+
+## Data availability
+
+The data is available from the [ENA](https://www.ebi.ac.uk/ena/browser/home) under the accession number PRJEB88217.
